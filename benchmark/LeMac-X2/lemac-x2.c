@@ -149,7 +149,7 @@ void lemac_x2_init(context *ctx, const uint8_t k[]) {
     RR = M2;                                                    \
   } while (0);
 
-state lemac_x2_AU(context *ctx, const uint8_t *m, size_t mlen, const __m256i N) {
+state lemac_x2_AU(context *ctx, const uint8_t *m, size_t mlen) {
   /* state S = ctx->init; */
   // Padding
   size_t m_padded_len = mlen - (mlen % 128) + 128;
@@ -184,33 +184,12 @@ state lemac_x2_AU(context *ctx, const uint8_t *m, size_t mlen, const __m256i N) 
   ROUND(S, STATE_0, STATE_0, STATE_0, STATE_0, RR, R0, R1, R2);
   ROUND(S, STATE_0, STATE_0, STATE_0, STATE_0, RR, R0, R1, R2);
 
-  // Absorb the tag from all the lanes into lane 0
-  // Lane1 is then not used any more, but keep using 256-bit vectors for simplicity
-  __m256i T = N ^ AES(ctx->keys[0], N);
-  T ^= AES_modified(ctx->subkeys  , S.S[0]);
-  T ^= AES_modified(ctx->subkeys+1, S.S[1]);
-  T ^= AES_modified(ctx->subkeys+2, S.S[2]);
-  T ^= AES_modified(ctx->subkeys+3, S.S[3]);
-  T ^= AES_modified(ctx->subkeys+4, S.S[4]);
-  T ^= AES_modified(ctx->subkeys+5, S.S[5]);
-  T ^= AES_modified(ctx->subkeys+6, S.S[6]);
-  T ^= AES_modified(ctx->subkeys+7, S.S[7]);
-  T ^= AES_modified(ctx->subkeys+8, S.S[8]);
-
-  const __m256i T0 = _mm256_broadcastsi128_si256(_mm256_extracti128_si256(T, 0));
-  const __m256i T1 = _mm256_broadcastsi128_si256(_mm256_extracti128_si256(T, 1));
-  ROUND(S, T0, T1, STATE_0, STATE_0, RR, R0, R1, R2);
-  ROUND(S, STATE_0, STATE_0, STATE_0, STATE_0, RR, R0, R1, R2);
-  ROUND(S, STATE_0, STATE_0, STATE_0, STATE_0, RR, R0, R1, R2);
-  ROUND(S, STATE_0, STATE_0, STATE_0, STATE_0, RR, R0, R1, R2);
-  ROUND(S, STATE_0, STATE_0, STATE_0, STATE_0, RR, R0, R1, R2);
-
   return S;
 }
 
 void lemac_x2_MAC(context *ctx, const uint8_t *nonce, const uint8_t *m, size_t mlen, uint8_t *tag) {
   const __m256i N = _mm256_broadcastsi128_si256(*(const __m128i *) nonce);
-  state S = lemac_x2_AU(ctx, m, mlen, N);
+  state S = lemac_x2_AU(ctx, m, mlen);
 
   __m256i T = N ^ AES(ctx->keys[0], N);
   T ^= AES_modified(ctx->subkeys  , S.S[0]);
@@ -222,6 +201,9 @@ void lemac_x2_MAC(context *ctx, const uint8_t *nonce, const uint8_t *m, size_t m
   T ^= AES_modified(ctx->subkeys+6, S.S[6]);
   T ^= AES_modified(ctx->subkeys+7, S.S[7]);
   T ^= AES_modified(ctx->subkeys+8, S.S[8]);
+
+  T = _mm256_broadcastsi128_si256(_mm_xor_si128(_mm256_extracti128_si256(T, 0),
+                                                _mm256_extracti128_si256(T, 1)));
 
   *(__m128i*)tag = _mm256_castsi256_si128(AES(ctx->keys[1], T));
 }
