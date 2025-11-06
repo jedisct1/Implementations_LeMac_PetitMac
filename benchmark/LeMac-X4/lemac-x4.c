@@ -196,11 +196,10 @@ state lemac_x4_AU(context *ctx, const uint8_t *m, size_t mlen) {
 }
 
 void lemac_x4_MAC(context *ctx, const uint8_t *nonce, const uint8_t *m, size_t mlen, uint8_t *tag) {
-  const __m512i N = _mm512_broadcast_i32x4(*(const __m128i *) nonce);
   state S = lemac_x4_AU(ctx, m, mlen);
 
-  __m512i T = N ^ AES(ctx->keys[0], N);
-  T ^= AES_modified(ctx->subkeys  , S.S[0]);
+  __m512i T;
+  T  = AES_modified(ctx->subkeys  , S.S[0]);
   T ^= AES_modified(ctx->subkeys+1, S.S[1]);
   T ^= AES_modified(ctx->subkeys+2, S.S[2]);
   T ^= AES_modified(ctx->subkeys+3, S.S[3]);
@@ -209,9 +208,15 @@ void lemac_x4_MAC(context *ctx, const uint8_t *nonce, const uint8_t *m, size_t m
   T ^= AES_modified(ctx->subkeys+6, S.S[6]);
   T ^= AES_modified(ctx->subkeys+7, S.S[7]);
   T ^= AES_modified(ctx->subkeys+8, S.S[8]);
-  T = _mm512_broadcast_i32x4(_mm_xor_si128(_mm_xor_si128(_mm_xor_si128
-                              (_mm512_extracti32x4_epi32(T, 0),  _mm512_extracti32x4_epi32(T, 1)),
-                               _mm512_extracti32x4_epi32(T, 2)), _mm512_extracti32x4_epi32(T, 3)));
 
-  *(__m128i*)tag = _mm512_castsi512_si128(AES(ctx->keys[1], T));
+  __m128i T_128 = _mm_xor_si128(_mm_xor_si128(_mm_xor_si128(
+                    _mm512_extracti32x4_epi32(T, 0),  _mm512_extracti32x4_epi32(T, 1)),
+                    _mm512_extracti32x4_epi32(T, 2)), _mm512_extracti32x4_epi32(T, 3));
+
+  const __m128i N = *(const __m128i *) nonce;
+  __m512i N_512 = _mm512_broadcast_i32x4(N);
+  __m128i nonce_contrib = _mm512_castsi512_si128(AES(ctx->keys[0], N_512));
+  T_128 ^= N ^ nonce_contrib;
+
+  *(__m128i*)tag = _mm512_castsi512_si128(AES(ctx->keys[1], _mm512_broadcast_i32x4(T_128)));
 }
